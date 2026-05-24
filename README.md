@@ -1,70 +1,96 @@
-# Como rodar no Octave
+# ModeloBCB — Interface Web para o Modelo Semi-Estrutural do BCB
 
-## Pré-requisitos
+Interface Streamlit para rodar simulações do modelo semi-estrutural de pequeno porte do Banco Central do Brasil (Relatório de Inflação 2024/Q2) **sem depender de Matlab ou Octave**. O motor de cálculo usa as matrizes de solução exportadas pelo Dynare, lidas em Python via `scipy.io`.
 
-### 1. Octave
-Instalar via Homebrew (macOS):
+## Como rodar
+
 ```bash
-brew install octave
+# Instalar dependências
+pip install -r requirements.txt
+
+# Iniciar o app
+streamlit run app.py
+# Acessa em http://localhost:8501
 ```
 
-### 2. Dynare compatível com Octave
-Baixar o instalador em **dynare.org → Downloads** e escolher a versão para Octave (mesma versão que você usa no MATLAB, se aplicável). No macOS com Homebrew:
-```bash
-brew install dynare
+## Estrutura de pastas
+
 ```
-Ou baixar o `.pkg` do site e instalar manualmente.
-
-### 3. Pacote `io` do Octave (necessário para escrever Excel)
-Dentro do Octave, executar **uma única vez**:
-```octave
-pkg install -forge io
-```
-
----
-
-## Configurar o path do Dynare
-
-O Octave precisa saber onde está o Dynare. Adicionar ao arquivo de inicialização `~/.octaverc`:
-```octave
-addpath('/usr/local/lib/dynare/matlab')   % ajustar para o caminho real da instalação
-```
-
-Para descobrir o caminho correto após instalar:
-```bash
-find /usr/local -name "dynare.m" 2>/dev/null
-```
-
----
-
-## Rodar
-
-No terminal, abrir o Octave na pasta do projeto e executar:
-```bash
-cd /caminho/para/Modelo24Q2_octave
-octave --no-gui runModelo24q2_abr26_oct.m
+remote_model/
+├── app.py                        ← entry point Streamlit
+├── requirements.txt
+├── ModeloBCB_remoto.md           ← diário técnico completo do projeto
+│
+├── modules/                      ← lógica Python (importada por app.py)
+│   ├── engine.py                 ← simult_() + loop de convergência (tradução NumPy do Dynare)
+│   ├── calculos.py               ← compounding K-M, tabelas de resultado, export Excel
+│   ├── baseline_io.py            ← lê/salva projecoes_copom.xlsx (projeções oficiais BCB)
+│   └── mercado_io.py             ← PTAX (SGS), Selic/Focus (Olinda), IPCA/Focus, calendário Copom
+│
+├── data/
+│   ├── mAgregado2024q2_base_results.mat   ← solução Dynare (artefato principal — não editar)
+│   ├── projecoes_copom.xlsx               ← projeções oficiais BCB por reunião (uma aba por reunião)
+│   ├── copom_calendar.json                ← datas das reuniões 2025–2026
+│   ├── copom2025_novo.xlsx                ← outputs de simulação 2025
+│   ├── copom2026_novo.xlsx                ← outputs de simulação 2026
+│   ├── simula_copom.xlsx                  ← inputs de expectativas/Selic entre reuniões
+│   └── brent e cambio.xlsx                ← premissas de commodities/câmbio
+│
+└── exploratory/                  ← scripts Matlab/Dynare (referência; não usados pelo app)
+    ├── mAgregado2024q2_base.mod           ← arquivo do modelo Dynare
+    ├── runModelo24q2_*.m                  ← runners por reunião do Copom
+    └── simul_cambio_e_hiato.m             ← grid search câmbio × hiato
 ```
 
-Ou interativamente dentro do Octave:
-```octave
-cd /caminho/para/Modelo24Q2_octave
-run runModelo24q2_abr26_oct.m
-```
+## Interface (app.py)
 
----
+O dashboard tem 4 abas:
 
-## Saída
+| Aba | Conteúdo |
+|---|---|
+| **Targets** | Trajetória da Selic (por reunião do Copom), expectativas IPCA (12m Focus) e câmbio (PTAX) |
+| **Choques diretos** | Choques avulsos: preços administrados, livres, Brent, hiato, câmbio extra |
+| **Baseline RPM** | Projeções oficiais do BCB carregadas do `projecoes_copom.xlsx` (somente leitura) |
+| **Resultados** | Tabela e gráficos: Selic, expectativas, câmbio, IPCA, livres, administrados |
 
-Os resultados são gravados em `copom2026_novo.xlsx`, aba `Abr26`, com 9 variáveis:
-`it`, `expectativa`, `delta_e`, `ht`, `ICbr`, `Brent`, `IPCA`, `Livres`, `Administrados`.
+Inputs de mercado (Selic/Focus, IPCA/Focus, PTAX) são pré-preenchidos automaticamente via APIs do BCB.
 
----
+## Arquitetura do motor
 
-## Problemas comuns
+O arquivo `.mat` contém a solução de primeira ordem do modelo Dynare:
 
-| Erro | Causa provável | Solução |
+| Matriz | Dimensão | Conteúdo |
 |---|---|---|
-| `dynare: command not found` | Dynare não está no path | Verificar `addpath` no `.octaverc` |
-| `xlswrite: undefined` | Pacote `io` não instalado | `pkg install -forge io` |
-| `error: pkg load io` | Pacote instalado mas não carregado | O script já faz `pkg load io`; verificar se a instalação foi bem-sucedida com `pkg list` |
-| Erro de compilação do `.mod` | Versão do Dynare incompatível | Usar Dynare 5.x ou superior |
+| `ghx` | 64×40 | Propagação pelos estados |
+| `ghu` | 64×28 | Impacto dos 28 choques |
+| `ys` | 64×1 | Steady state |
+
+`engine.py` implementa `simult_()` em NumPy e um loop de convergência que ajusta os choques `eps_i` (Selic), `eps_ei` (expectativas) e `eps_e` (câmbio) até as trajetórias alvo convergirem (tolerância 1e-6 / 1e-4 / 1e-4, máximo 10.000 iterações).
+
+## Dados de mercado (automação)
+
+| Dado | Fonte | Módulo |
+|---|---|---|
+| PTAX (câmbio) | SGS série 10813 | `mercado_io.fetch_ptax_window` |
+| Selic realizada | SGS série 432 | `mercado_io.get_selic_sgs432` |
+| Selic Focus | Olinda `ExpectativasMercadoSelic` | `mercado_io.fetch_selic_focus_on_date` |
+| IPCA 12m suavizado | Olinda `ExpectativasMercadoInflacao12Meses` | `mercado_io.fetch_ipca_12m` |
+| IPCA trimestral | Olinda `ExpectativasMercadoTrimestrais` | `mercado_io.fetch_ipca_trimestral` |
+| IPCA anual | Olinda `ExpectativasMercadoInflacaoAnuais` | `mercado_io.fetch_ipca_anual` |
+
+**Regra PTAX:** média dos últimos 10 dias úteis encerrada na sexta-feira da semana anterior à do Copom, arredondada para o múltiplo de R$0,05 mais próximo.
+
+## Atualização do modelo
+
+Se o arquivo `.mod` for alterado e o Dynare reprocessado, basta substituir `data/mAgregado2024q2_base_results.mat` pela nova solução. O app Python não precisa de outras mudanças.
+
+## Calendário Copom
+
+`data/copom_calendar.json` contém as datas das reuniões de 2025 e 2026. Atualizar com reuniões de 2027 quando o BCB publicar.
+
+## Referências
+
+- Relatório de Inflação BCB 2024/Q2 — especificação do modelo semi-estrutural
+- [Dynare Reference Manual](https://www.dynare.org/manual/)
+- API BCB Olinda: `https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/`
+- SGS BCB: `https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados`

@@ -6,11 +6,14 @@ __pycache__/
 # Streamlit
 .streamlit/
 
-# Dynare / Octave
-+mAgregado2024q2_base/
-mAgregado2024q2_base/
-mAgregado2024q2_base.log
-*.mod
+# Dynare / Octave / exploratory scripts
+exploratory/
+
+# Data files — apenas projecoes_copom.xlsx é rastreado
+data/*.xlsx
+!data/projecoes_copom.xlsx
+data/*.mat
+!data/mAgregado2024q2_base_results.mat
 
 # Excel lock files
 ~$*.xlsx

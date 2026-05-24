@@ -11,11 +11,14 @@ Executar:
 import io
 import os
 import re
+import sys
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from datetime import date
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "modules"))
 
 from engine import load_model, run_scenario
 from calculos import build_results_table, build_comparison_table, export_excel
@@ -39,8 +42,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-MAT_FILE      = os.path.join(os.path.dirname(__file__), "mAgregado2024q2_base_results.mat")
-BASELINE_FILE = os.path.join(os.path.dirname(__file__), "projecoes_copom.xlsx")
+MAT_FILE      = os.path.join(os.path.dirname(__file__), "data", "mAgregado2024q2_base_results.mat")
+BASELINE_FILE = os.path.join(os.path.dirname(__file__), "data", "projecoes_copom.xlsx")
 
 OOMEGA_L = 1 - 0.259
 N_CAMBIO_BASE = 7

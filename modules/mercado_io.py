@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
-CALENDAR_PATH = Path(__file__).parent / "copom_calendar.json"
+CALENDAR_PATH = Path(__file__).parent.parent / "data" / "copom_calendar.json"
 SGS_URL = (
     "https://api.bcb.gov.br/dados/serie/bcdata.sgs.10813/dados"
     "?formato=json&dataInicial={start}&dataFinal={end}"
