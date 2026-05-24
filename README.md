@@ -80,6 +80,16 @@ O arquivo `.mat` contém a solução de primeira ordem do modelo Dynare:
 
 **Regra PTAX:** média dos últimos 10 dias úteis encerrada na sexta-feira da semana anterior à do Copom, arredondada para o múltiplo de R$0,05 mais próximo.
 
+## Curva de Brent (automação Bloomberg)
+
+A aba **Choques diretos** inclui automação da curva de Brent do BCB:
+
+- **Arquivo padrão:** `data/Brent_full.xlsx` — exportação Bloomberg com contratos ICE Brent (aba `copia`). Já está no repositório e é carregado automaticamente.
+- **Atualização:** para usar dados mais recentes, faça upload do novo `Brent_full.xlsx` via o widget na aba, ou substitua o arquivo em `data/` e faça push.
+- **Metodologia replicada:** P₀ (média 10 dias úteis no cutoff), strip M+1..M+6 com halfstale para contratos expirados, crescimento de 2% a.a. após M+6.
+- **Cutoff:** sexta-feira da semana anterior à semana da reunião do Copom (derivado automaticamente do nome da reunião).
+- O usuário vê e edita **níveis em USD** por trimestre; o `eps_brent` (%∆) é calculado internamente.
+
 ## Atualização do modelo
 
 Se o arquivo `.mod` for alterado e o Dynare reprocessado, basta substituir `data/mAgregado2024q2_base_results.mat` pela nova solução. O app Python não precisa de outras mudanças.

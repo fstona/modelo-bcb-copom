@@ -32,6 +32,11 @@ from mercado_io import (
     fetch_ipca_trimestral, fetch_ipca_12m_suav, fetch_ipca_anual,
     build_expec_curve, compute_expec_delta, model_q_to_focus_q,
 )
+from brent_io import (
+    load_brent_curve, levels_to_eps_brent, quarter_labels as brent_quarter_labels,
+    copom_cutoff as brent_copom_cutoff, file_hash as brent_file_hash,
+    BRENT_DEFAULT_PATH,
+)
 
 # ---------------------------------------------------------------------------
 # Configuração da página
@@ -44,6 +49,7 @@ st.set_page_config(
 
 MAT_FILE      = os.path.join(os.path.dirname(__file__), "data", "mAgregado2024q2_base_results.mat")
 BASELINE_FILE = os.path.join(os.path.dirname(__file__), "data", "projecoes_copom.xlsx")
+BRENT_FILE    = str(BRENT_DEFAULT_PATH)
 
 OOMEGA_L = 1 - 0.259
 N_CAMBIO_BASE = 7
@@ -107,6 +113,17 @@ def _cached_curr_ipca_focus(curr_date_iso: str, _v=4):
     _, suav = fetch_ipca_12m_suav(d)
     _, anual = fetch_ipca_anual(d)
     return quarterly, suav, anual
+
+
+@st.cache_data
+def _cached_brent_curve(file_hash: str, meeting_date_iso: str, cutoff_iso: str, file_bytes=None):
+    """Curva de Brent BCB — cache por hash do arquivo + data da reunião."""
+    from datetime import date as _date
+    meeting = _date.fromisoformat(meeting_date_iso)
+    cutoff = _date.fromisoformat(cutoff_iso)
+    import io as _io
+    path = _io.BytesIO(file_bytes) if file_bytes is not None else None
+    return load_brent_curve(meeting, bloomberg_path=path, cutoff=cutoff)
 
 
 model = get_model()
@@ -563,14 +580,54 @@ with tab_choques:
         pil_vals.append(v / OOMEGA_L)
 
     st.divider()
-    st.markdown("**Brent** — %∆ por período")
-    n_brent = st.number_input("Nº de períodos (eps_brent)", 0, 16, 3, key="n_brent")
-    brent_vals = []
+    st.markdown("**Brent** — nível por trimestre (USD)")
+
+    # --- Uploader Bloomberg ---
+    _brent_upload = st.file_uploader(
+        "Atualizar Brent_full.xlsx (Bloomberg) — opcional; se vazio usa o arquivo do repo",
+        type=["xlsx"], key="brent_uploader",
+    )
+    _brent_bytes = _brent_upload.read() if _brent_upload is not None else None
+    _brent_hash  = brent_file_hash(_brent_bytes) if _brent_bytes else brent_file_hash(BRENT_FILE)
+
+    # --- Calcula curva BCB ---
+    _brent_meeting_date = find_meeting_date(copom_name, _copom_calendar) or date.today()
+    _brent_cutoff       = brent_copom_cutoff(_brent_meeting_date)
+    _brent_levels_auto, _brent_q_prev = _cached_brent_curve(
+        _brent_hash, _brent_meeting_date.isoformat(), _brent_cutoff.isoformat(),
+        file_bytes=_brent_bytes,
+    )
+    _brent_eps_auto = levels_to_eps_brent(_brent_levels_auto, _brent_q_prev)
+    _brent_labels   = brent_quarter_labels(_brent_meeting_date, len(_brent_levels_auto))
+
+    # Nº de períodos padrão = até onde há variação real (strip de 6 meses = ~2 trimestres além do corrente)
+    _brent_n_default = min(6, len(_brent_levels_auto))
+    n_brent = st.number_input("Nº de trimestres", 0, len(_brent_levels_auto),
+                               _brent_n_default, key="n_brent")
+
+    st.caption(
+        f"Cutoff BCB: {_brent_cutoff.strftime('%d/%m/%Y')}  |  "
+        f"Q anterior ({_brent_labels[0] if _brent_labels else '?'[:-2] + ' prev'}): "
+        f"**{_brent_q_prev:.2f} USD**"
+    )
+
+    # --- Inputs de nível USD (pré-preenchidos, editáveis) ---
+    brent_input_levels = []
     cols_b = st.columns(4)
-    for t in range(n_brent):
-        v = cols_b[t % 4].number_input(quarters[t], value=0.0, step=0.5,
-                                        format="%.2f", key=f"brent_{t}")
-        brent_vals.append(v)
+    for t in range(int(n_brent)):
+        _auto_lvl = _brent_levels_auto[t] if t < len(_brent_levels_auto) else 0.0
+        _lbl      = _brent_labels[t] if t < len(_brent_labels) else quarters[t]
+        _prev_lvl = _brent_input_levels_prev = (
+            brent_input_levels[-1] if t > 0 else _brent_q_prev
+        )
+        v = cols_b[t % 4].number_input(
+            _lbl, value=float(_auto_lvl), step=0.5, format="%.2f", key=f"brent_{t}"
+        )
+        _delta_pct = (v / _prev_lvl - 1) * 100 if _prev_lvl else 0.0
+        cols_b[t % 4].caption(f"Δ: {_delta_pct:+.2f}%")
+        brent_input_levels.append(v)
+
+    brent_vals = levels_to_eps_brent(brent_input_levels, _brent_q_prev) if brent_input_levels else []
 
     st.divider()
     st.markdown("**Hiato do produto** — choque persistente (eps_h2008, pp)")
@@ -692,6 +749,10 @@ with tab_resultados:
             "selic_delta": selic_vals,
             "expec_curr_curve": _curr_expec_curve,
             "expec_prev_curve": _prev_expec_curve,
+            "brent_levels": brent_input_levels,
+            "brent_q_prev": _brent_q_prev,
+            "brent_labels": _brent_labels,
+            "brent_eps": brent_vals,
         })
 
     if "df" not in st.session_state:
@@ -814,6 +875,51 @@ with tab_resultados:
         legend=dict(orientation="h", y=1.02, yanchor="bottom"),
     )
     st.plotly_chart(fig_selic_lvl, use_container_width=True)
+
+    # --- Brent ---
+    st.divider()
+    _brent_levels_ss = st.session_state.get("brent_levels", [])
+    _brent_q_prev_ss = st.session_state.get("brent_q_prev", None)
+    _brent_labels_ss = st.session_state.get("brent_labels", [])
+    _brent_eps_ss    = st.session_state.get("brent_eps", [])
+
+    if _brent_levels_ss:
+        st.markdown("#### Brent — nível simulado (USD/barril)")
+        _brent_plot_labels = (
+            _brent_labels_ss[:len(_brent_levels_ss)]
+            if _brent_labels_ss
+            else quarters[:len(_brent_levels_ss)]
+        )
+        fig_brent_lvl = go.Figure()
+        fig_brent_lvl.add_trace(go.Scatter(
+            x=_brent_plot_labels, y=_brent_levels_ss,
+            name="Brent (BCB)", mode="lines+markers",
+            line=dict(color="#e67e22", width=2),
+        ))
+        if _brent_q_prev_ss is not None:
+            fig_brent_lvl.add_trace(go.Scatter(
+                x=[_brent_plot_labels[0]], y=[_brent_q_prev_ss],
+                name="Q anterior (realizado)", mode="markers",
+                marker=dict(color="#999999", size=8, symbol="circle-open"),
+            ))
+        fig_brent_lvl.update_layout(
+            yaxis_title="USD/barril", height=300,
+            legend=dict(orientation="h", y=1.02, yanchor="bottom"),
+        )
+        st.plotly_chart(fig_brent_lvl, use_container_width=True)
+
+        st.markdown("#### Brent — eps_brent (%∆ trimestral)")
+        _eps_plot = (_brent_eps_ss + [None] * len(_brent_plot_labels))[:len(_brent_plot_labels)]
+        fig_brent_eps = go.Figure()
+        fig_brent_eps.add_trace(go.Bar(
+            x=_brent_plot_labels, y=_eps_plot,
+            name="eps_brent", marker_color="#e67e22",
+        ))
+        fig_brent_eps.update_layout(
+            yaxis_title="%∆ trimestral", height=280,
+            legend=dict(orientation="h", y=1.02, yanchor="bottom"),
+        )
+        st.plotly_chart(fig_brent_eps, use_container_width=True)
 
     # --- Expectativas de inflação — comparativo entre reuniões ---
     st.divider()
