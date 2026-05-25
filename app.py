@@ -874,7 +874,7 @@ with tab_resultados:
         styles = pd.DataFrame("", index=df_s.index, columns=df_s.columns)
         for col in df_s.columns:
             if col == hr_col:
-                styles[col] = "font-weight: bold; background-color: #D4EFE2; color: #1a1a1a"
+                styles[col] = "font-weight: bold; background-color: #2D6A4F; color: #FFFFFF"
         for idx in df_s.index:
             if isinstance(idx, tuple) and "BCB pub." in str(idx[1]):
                 styles.loc[idx] = styles.loc[idx].apply(
