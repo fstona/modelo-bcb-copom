@@ -249,6 +249,7 @@ else:
     st.sidebar.warning("Reunião não encontrada no calendário — assumindo 1ª do trimestre.")
 
 alternativo  = st.sidebar.checkbox("Cenário alternativo", value=False)
+dark_mode    = st.sidebar.checkbox("Modo escuro", value=False)
 peso_adm     = st.sidebar.number_input("Peso Adm (cálculo indireto)",
                                         value=0.25, min_value=0.0, max_value=1.0, step=0.01)
 
@@ -834,6 +835,7 @@ with tab_resultados:
             "n_cambio_targets_stored": len(target_cambio),
             "alternativo_stored": alternativo,
             "n_expec_stored": int(n_expec),
+            "dark_mode_stored": dark_mode,
         })
 
     if "df" not in st.session_state:
@@ -870,11 +872,18 @@ with tab_resultados:
     if bcb_curr_proj_ss:
         st.caption(f"Linha **BCB pub. ({curr_name_ss})** = projeção publicada pelo BCB para esta reunião.")
 
+    _dark_mode_ss = st.session_state.get("dark_mode_stored", False)
+    _hr_style = (
+        "font-weight: bold; background-color: #2D6A4F; color: #FFFFFF"
+        if _dark_mode_ss else
+        "font-weight: bold; background-color: #D4EFE2; color: #1a1a1a"
+    )
+
     def _style_comp(df_s):
         styles = pd.DataFrame("", index=df_s.index, columns=df_s.columns)
         for col in df_s.columns:
             if col == hr_col:
-                styles[col] = "font-weight: bold; background-color: #2D6A4F; color: #FFFFFF"
+                styles[col] = _hr_style
         for idx in df_s.index:
             if isinstance(idx, tuple) and "BCB pub." in str(idx[1]):
                 styles.loc[idx] = styles.loc[idx].apply(
@@ -901,8 +910,7 @@ with tab_resultados:
     fig_selic.add_trace(go.Scatter(
         x=quarters, y=_selic_target,
         name="Δ target (Focus)", mode="markers",
-        marker=dict(color="#9CA3AF", size=9, symbol="diamond",
-                    line=dict(color="#4B5563", width=1.5)),
+        marker=dict(color="#9CA3AF" if dark_mode else "#4B5563", size=8, symbol="diamond"),
         connectgaps=False,
     ))
     fig_selic.update_layout(yaxis_title="pp vs steady state", height=300,
