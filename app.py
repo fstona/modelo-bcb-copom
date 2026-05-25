@@ -554,14 +554,23 @@ with tab_targets:
     target_cambio = [var_cambio] + [0.0] * (N_CAMBIO_BASE - 1)
 
     if alternativo:
-        st.markdown("**Cenário alternativo — câmbio adicional (períodos 2+)**")
-        cols_c2 = st.columns(4)
-        for t in range(1, N_CAMBIO_BASE):
-            v = cols_c2[(t - 1) % 4].number_input(
-                f"%∆ {quarters[t]}", value=0.0, step=0.01,
-                format="%.4f", key=f"cambio_alt_{t}"
-            )
-            target_cambio[t] = v
+        st.markdown("**Cenário alternativo — câmbio (períodos 2+)**")
+        n_cambio_alt = int(st.number_input(
+            "Nº de períodos explícitos além do Q1  (0 = câmbio endógeno)",
+            0, N_CAMBIO_BASE - 1, 0, key="n_cambio_alt",
+        ))
+        if n_cambio_alt == 0:
+            st.caption("Câmbio endógeno a partir do 2º período — evolui via UIP sem ancoragem.")
+            target_cambio = [var_cambio]
+        else:
+            cols_c2 = st.columns(4)
+            for t in range(1, 1 + n_cambio_alt):
+                v = cols_c2[(t - 1) % 4].number_input(
+                    f"%∆ {quarters[t]}", value=0.0, step=0.01,
+                    format="%.4f", key=f"cambio_alt_{t}",
+                )
+                target_cambio[t] = v
+            target_cambio = target_cambio[:1 + n_cambio_alt]
 
 # ============================================================
 # ABA 2 — Choques diretos
@@ -788,6 +797,9 @@ with tab_resultados:
             "brent_eps": brent_vals,
             "brent_prev_levels": _brent_prev_levels,
             "brent_prev_labels": _brent_prev_labels,
+            "cambio_q1_stored": cambio_q1,
+            "n_cambio_targets_stored": len(target_cambio),
+            "alternativo_stored": alternativo,
         })
 
     if "df" not in st.session_state:
@@ -910,6 +922,47 @@ with tab_resultados:
         legend=dict(orientation="h", y=1.02, yanchor="bottom"),
     )
     st.plotly_chart(fig_selic_lvl, use_container_width=True)
+
+    # --- Câmbio nível ---
+    st.divider()
+    _cambio_q1_ss          = st.session_state.get("cambio_q1_stored", None)
+    _n_cambio_targets_ss   = st.session_state.get("n_cambio_targets_stored", N_CAMBIO_BASE)
+    _alternativo_ss        = st.session_state.get("alternativo_stored", False)
+
+    if _cambio_q1_ss is not None:
+        _E_PPC = 0.25  # depreciação trimestral de steady state (% a.t.)
+        _cambio_lvl = [float(_cambio_q1_ss)]
+        for _t in range(1, _horizon):
+            _irf_t = float(df["delta_e"].iloc[_t]) if _t < len(df) else 0.0
+            _cambio_lvl.append(round(_cambio_lvl[-1] * (1 + (_E_PPC + _irf_t) / 100), 4))
+
+        _ppc_ref = [round(float(_cambio_q1_ss) * (1 + _E_PPC / 100) ** _t, 4)
+                    for _t in range(_horizon)]
+
+        st.markdown("#### Câmbio — nível simulado (R$/USD)")
+        fig_cambio = go.Figure()
+        fig_cambio.add_trace(go.Scatter(
+            x=quarters[:_horizon], y=_cambio_lvl,
+            name="Câmbio simulado", mode="lines+markers",
+            line=dict(color="#2ca02c", width=2),
+        ))
+        fig_cambio.add_trace(go.Scatter(
+            x=quarters[:_horizon], y=_ppc_ref,
+            name="PPC (0,25% a.t.)", mode="lines",
+            line=dict(color="#555555", dash="dash", width=1.5),
+        ))
+        if _alternativo_ss and 0 < _n_cambio_targets_ss < _horizon:
+            fig_cambio.add_shape(
+                type="line",
+                x0=quarters[_n_cambio_targets_ss - 1], x1=quarters[_n_cambio_targets_ss - 1],
+                y0=0, y1=1, yref="paper",
+                line=dict(dash="dot", color="gray", width=1),
+            )
+        fig_cambio.update_layout(
+            yaxis_title="R$/USD", height=300,
+            legend=dict(orientation="h", y=1.02, yanchor="bottom"),
+        )
+        st.plotly_chart(fig_cambio, use_container_width=True)
 
     # --- Brent ---
     st.divider()
