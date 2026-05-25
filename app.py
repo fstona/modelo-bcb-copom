@@ -52,7 +52,7 @@ BASELINE_FILE = os.path.join(os.path.dirname(__file__), "data", "projecoes_copom
 BRENT_FILE    = str(BRENT_DEFAULT_PATH)
 
 OOMEGA_L = 1 - 0.259
-N_CAMBIO_BASE = 7
+N_CAMBIO_BASE = 16
 
 
 @st.cache_resource
@@ -800,6 +800,7 @@ with tab_resultados:
             "cambio_q1_stored": cambio_q1,
             "n_cambio_targets_stored": len(target_cambio),
             "alternativo_stored": alternativo,
+            "n_expec_stored": int(n_expec),
         })
 
     if "df" not in st.session_state:
@@ -1031,6 +1032,7 @@ with tab_resultados:
 
     _expec_curr_ss = st.session_state.get("expec_curr_curve", [])
     _expec_prev_ss = st.session_state.get("expec_prev_curve", [])
+    _n_anch_expec  = st.session_state.get("n_expec_stored", 0)
 
     # Limita ao último índice com dado em qualquer uma das duas curvas
     _expec_last = max(
@@ -1041,34 +1043,48 @@ with tab_resultados:
         max((i for i, v in enumerate(_expec_prev_ss) if v is not None), default=-1),
     )
     _n_expec_plot = _expec_last + 1
-
     _eq = quarters[:_n_expec_plot]
-    _curr_vals_plot = [
-        (_expec_curr_ss[i] if i < len(_expec_curr_ss) and _expec_curr_ss[i] is not None else float("nan"))
-        for i in range(_n_expec_plot)
-    ]
-    _prev_vals_plot = [
-        (_expec_prev_ss[i] if i < len(_expec_prev_ss) and _expec_prev_ss[i] is not None else float("nan"))
-        for i in range(_n_expec_plot)
-    ]
+
+    # Constrói série atual: Focus quando ancorada, prev+delta do modelo quando endógena
+    _expec_curr_plot, _expec_prev_plot = [], []
+    for _i in range(_n_expec_plot):
+        _pv = (_expec_prev_ss[_i]
+               if _i < len(_expec_prev_ss) and _expec_prev_ss[_i] is not None
+               else None)
+        _expec_prev_plot.append(_pv)
+        if _i < _n_anch_expec:
+            _cv = (_expec_curr_ss[_i]
+                   if _i < len(_expec_curr_ss) and _expec_curr_ss[_i] is not None
+                   else None)
+            _expec_curr_plot.append(_cv)
+        else:
+            _dv = float(df["expectativa"].iloc[_i]) if _i < len(df) else 0.0
+            _expec_curr_plot.append(round(_pv + _dv, 4) if _pv is not None else None)
 
     fig_expec = go.Figure()
-    fig_expec.add_trace(go.Bar(
-        x=_eq, y=_prev_vals_plot,
-        name=prev_name_ss,
-        marker_color="#555555",
-        offsetgroup=0,
+    fig_expec.add_trace(go.Scatter(
+        x=_eq, y=_expec_curr_plot,
+        name=curr_name_ss, mode="lines+markers",
+        line=dict(color="#2ca02c", width=2),
+        connectgaps=False,
     ))
-    fig_expec.add_trace(go.Bar(
-        x=_eq, y=_curr_vals_plot,
-        name=curr_name_ss,
-        marker_color="#2ca02c",
-        offsetgroup=1,
+    fig_expec.add_trace(go.Scatter(
+        x=_eq, y=_expec_prev_plot,
+        name=prev_name_ss, mode="lines+markers",
+        line=dict(color="#555555", dash="dash", width=2),
+        marker=dict(symbol="circle-open"),
+        connectgaps=False,
     ))
+    if 0 < _n_anch_expec < _n_expec_plot:
+        fig_expec.add_shape(
+            type="line",
+            x0=quarters[_n_anch_expec - 1], x1=quarters[_n_anch_expec - 1],
+            y0=0, y1=1, yref="paper",
+            line=dict(dash="dot", color="gray", width=1),
+        )
     fig_expec.update_layout(
-        barmode="group",
         yaxis_title="% acum. 12m (Focus)",
-        height=340,
+        height=320,
         legend=dict(orientation="h", y=1.02, yanchor="bottom"),
     )
     st.plotly_chart(fig_expec, use_container_width=True)
