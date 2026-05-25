@@ -874,7 +874,7 @@ with tab_resultados:
         styles = pd.DataFrame("", index=df_s.index, columns=df_s.columns)
         for col in df_s.columns:
             if col == hr_col:
-                styles[col] = "font-weight: bold; background-color: #00A859; color: #FFFFFF"
+                styles[col] = "font-weight: bold; background-color: #D4EFE2; color: #1a1a1a"
         for idx in df_s.index:
             if isinstance(idx, tuple) and "BCB pub." in str(idx[1]):
                 styles.loc[idx] = styles.loc[idx].apply(
@@ -901,7 +901,7 @@ with tab_resultados:
     fig_selic.add_trace(go.Scatter(
         x=quarters, y=_selic_target,
         name="Δ target (Focus)", mode="markers",
-        marker=dict(color="#00A859", size=8, symbol="diamond"),
+        marker=dict(color="#9CA3AF", size=8, symbol="diamond"),
         connectgaps=False,
     ))
     fig_selic.update_layout(yaxis_title="pp vs steady state", height=300,
