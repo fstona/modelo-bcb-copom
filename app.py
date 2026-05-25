@@ -273,6 +273,13 @@ elif not prev_meeting_name:
 # "Anterior" na tabela comparativa = mesmas projeções do baseline
 prev_proj = curr_proj
 
+# Projeções publicadas pelo BCB para a reunião atual — usadas como coluna de comparação ex-post
+bcb_curr_proj = None
+if os.path.exists(BASELINE_FILE):
+    bcb_curr_proj = load_meeting(BASELINE_FILE, copom_name)
+    if bcb_curr_proj:
+        st.sidebar.success(f"Projeções BCB de **{copom_name}** disponíveis — coluna de comparação ativada.")
+
 # ---------------------------------------------------------------------------
 # Abas principais
 # ---------------------------------------------------------------------------
@@ -308,6 +315,15 @@ with tab_targets:
     else:
         _prev_focus_date_used, _prev_focus_dict = None, {}
     _curr_focus_date_used, _curr_focus_dict = _cached_curr_selic_focus(_curr_ref_date.isoformat())
+
+    # --- Status bar de dados automáticos ---
+    _sb_ref   = _curr_ref_date.strftime("%d/%m/%Y")
+    _sb_selic = str(_curr_focus_date_used) if _curr_focus_date_used else "⚠️ indisponível"
+    _sb_hist  = "(dado histórico — referência da reunião)" if (_meeting_date and _meeting_date < _today) else "(hoje)"
+    st.info(
+        f"📡 **Dados automáticos** — Referência: **{_sb_ref}** {_sb_hist} · "
+        f"Focus Selic: **{_sb_selic}** · Focus IPCA: mesma data · PTAX: ver câmbio abaixo"
+    )
 
     # --- Build quarter → [labels] mapping (needed before n_selic) ---
     _label_map = build_meeting_label_map(_copom_calendar)
@@ -578,8 +594,13 @@ with tab_targets:
 with tab_choques:
     st.subheader("Choques diretos")
 
-    st.markdown(f"**IPCA Monitorados** — pp de IPCA monitorados "
-                f"(escalado por 1/(1−ωL) = {1/(1-OOMEGA_L):.3f} internamente)")
+    st.markdown("**IPCA Monitorados (`eps_monit`)**")
+    st.caption(
+        "Use quando o BCB revisou a trajetória de preços administrados entre reuniões "
+        "(energia, combustíveis, tarifas). Fonte: RPM/ata do Copom. "
+        "Inserir em **pp de IPCA acumulado no trimestre** — o app aplica o fator "
+        f"1/(1−ωL) = **{1/(1-OOMEGA_L):.3f}** internamente para converter para o choque do modelo."
+    )
     n_monit = st.number_input("Nº de períodos (eps_monit)", 0, 16, 1, key="n_monit")
     monit_vals = []
     cols_m = st.columns(4)
@@ -589,8 +610,14 @@ with tab_choques:
         monit_vals.append(v / (1 - OOMEGA_L))
 
     st.divider()
-    st.markdown(f"**IPCA Livres** — pp de IPCA livres "
-                f"(escalado por 1/ωL = {1/OOMEGA_L:.3f} internamente)")
+    st.markdown("**IPCA Livres (`eps_piL`)**")
+    st.caption(
+        "Pressão adicional de preços livres não capturada pela revisão de expectativas Focus. "
+        "Raramente necessário: o choque de expectativas (`eps_ei`) já cobre a maior parte da "
+        "revisão de livres. Use apenas quando houver surpresa de curto prazo isolada "
+        "(ex.: choque de alimentos). "
+        f"Inserir em **pp de IPCA livres** — fator interno: 1/ωL = **{1/OOMEGA_L:.3f}**."
+    )
     n_pil = st.number_input("Nº de períodos (eps_piL)", 0, 16, 1, key="n_pil")
     pil_vals = []
     cols_p = st.columns(4)
@@ -681,7 +708,12 @@ with tab_choques:
         brent_vals.pop()
 
     st.divider()
-    st.markdown("**Hiato do produto** — choque persistente (eps_h2008, pp)")
+    st.markdown("**Hiato do produto (`eps_h2008`)**")
+    st.caption(
+        "Choque persistente sobre o hiato do produto. Use em cenários de recessão ou "
+        "superaquecimento não capturados pelo canal de Selic/câmbio — por exemplo, "
+        "revisão de crescimento do PIB potencial. Inserir em **pp do hiato**."
+    )
     n_hiato = st.number_input("Nº de períodos (eps_h2008)", 0, 16, 0, key="n_hiato")
     hiato_vals = []
     cols_h = st.columns(4)
@@ -788,6 +820,7 @@ with tab_resultados:
             "prev_proj": prev_proj,
             "prev_name": prev_meeting_name or "Anterior",
             "prev_extra": prev_extra,
+            "bcb_curr_proj": bcb_curr_proj,
             "selic_delta": selic_vals,
             "expec_curr_curve": _curr_expec_curve,
             "expec_prev_curve": _prev_expec_curve,
@@ -812,10 +845,11 @@ with tab_resultados:
     quarters        = st.session_state["quarters"]
     segunda_reuniao = st.session_state["segunda_reuniao"]
     copom_horizons  = st.session_state["copom_horizons"]
-    curr_name_ss  = st.session_state.get("curr_name", copom_name)
-    prev_proj_ss  = st.session_state.get("prev_proj", None)
-    prev_name_ss  = st.session_state.get("prev_name", "Anterior")
-    prev_extra_ss = st.session_state.get("prev_extra", None)
+    curr_name_ss    = st.session_state.get("curr_name", copom_name)
+    prev_proj_ss    = st.session_state.get("prev_proj", None)
+    prev_name_ss    = st.session_state.get("prev_name", "Anterior")
+    prev_extra_ss   = st.session_state.get("prev_extra", None)
+    bcb_curr_proj_ss = st.session_state.get("bcb_curr_proj", None)
 
     # --- Tabela comparativa (sempre exibida) ---
     comp_table, hr_col = build_comparison_table(
@@ -826,17 +860,30 @@ with tab_resultados:
         curr_name=curr_name_ss,
         prev_proj=prev_proj_ss,
         prev_extra=prev_extra_ss,
+        bcb_proj=bcb_curr_proj_ss,
+        bcb_name=f"BCB pub. ({curr_name_ss})",
     )
 
     st.markdown("#### Projeções acumuladas — comparativo entre reuniões")
     if hr_col:
         st.caption(f"HR = Horizonte Relevante | coluna **{hr_col}**")
+    if bcb_curr_proj_ss:
+        st.caption(f"Linha **BCB pub. ({curr_name_ss})** = projeção publicada pelo BCB para esta reunião.")
+
+    def _style_comp(df_s):
+        styles = pd.DataFrame("", index=df_s.index, columns=df_s.columns)
+        for col in df_s.columns:
+            if col == hr_col:
+                styles[col] = "font-weight: bold; background-color: #fffbe6"
+        for idx in df_s.index:
+            if isinstance(idx, tuple) and f"BCB pub." in str(idx[1]):
+                styles.loc[idx] = styles.loc[idx].apply(
+                    lambda v: v + "; background-color: #e8f4fd; color: #1a5276"
+                )
+        return styles
+
     st.dataframe(
-        comp_table.style.format("{:.1f}", na_rep="—").apply(
-            lambda col: (["font-weight: bold; background-color: #fffbe6"] * len(col)
-                         if col.name == hr_col else [""] * len(col)),
-            axis=0,
-        ),
+        comp_table.style.format("{:.1f}", na_rep="—").apply(_style_comp, axis=None),
         use_container_width=True,
     )
 

@@ -133,6 +133,8 @@ def build_comparison_table(
     curr_name: str,
     prev_proj: Optional[dict] = None,
     prev_extra: Optional[dict] = None,
+    bcb_proj: Optional[dict] = None,
+    bcb_name: str = "BCB pub.",
 ) -> tuple:
     """
     Monta a tabela comparativa (equivalente AF2:AJ9 do copom2026_novo.xlsx).
@@ -198,6 +200,16 @@ def build_comparison_table(
                 prev_row.append(np.nan)
         rows.append(prev_row)
         idx_tuples.append((var_name, prev_name))
+
+        # Projeções publicadas pelo BCB para a reunião atual (quando disponíveis)
+        if bcb_proj is not None:
+            bcb_row = []
+            for h in all_horizons:
+                series = bcb_proj.get(prev_key, [])
+                val = series[h["index"]] if h["index"] < len(series) else np.nan
+                bcb_row.append(np.nan if (isinstance(val, float) and np.isnan(val)) else val)
+            rows.append(bcb_row)
+            idx_tuples.append((var_name, bcb_name))
 
         curr_row = [
             df[proj_col].iloc[h["index"]] if h["index"] < len(df) else np.nan
