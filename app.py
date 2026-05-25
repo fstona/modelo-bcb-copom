@@ -681,15 +681,6 @@ with tab_choques:
                                         format="%.4f", key=f"hiato_{t}")
         hiato_vals.append(v)
 
-    st.divider()
-    st.markdown("**Meta de inflação** — eps_meta (pp)")
-    n_meta = st.number_input("Nº de períodos (eps_meta)", 0, 16, 0, key="n_meta")
-    meta_vals = []
-    cols_mt = st.columns(4)
-    for t in range(n_meta):
-        v = cols_mt[t % 4].number_input(quarters[t], value=0.0, step=0.05,
-                                         format="%.4f", key=f"meta_{t}")
-        meta_vals.append(v)
 
 # ============================================================
 # ABA 3 — Baseline (RPM ou decisão do Copom)
@@ -758,7 +749,7 @@ with tab_resultados:
         if pil_vals:   direct_shocks["eps_piL"]   = pil_vals
         if brent_vals: direct_shocks["eps_brent"] = brent_vals
         if hiato_vals: direct_shocks["eps_h2008"] = hiato_vals
-        if meta_vals:  direct_shocks["eps_meta"]  = meta_vals
+
 
         with st.spinner("Calculando..."):
             result = run_scenario(
