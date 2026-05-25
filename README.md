@@ -18,29 +18,24 @@ streamlit run app.py
 ```
 remote_model/
 ├── app.py                        ← entry point Streamlit
+├── CLAUDE.md                     ← instruções para o Claude Code
 ├── requirements.txt
-├── ModeloBCB_remoto.md           ← diário técnico completo do projeto
 │
 ├── modules/                      ← lógica Python (importada por app.py)
 │   ├── engine.py                 ← simult_() + loop de convergência (tradução NumPy do Dynare)
 │   ├── calculos.py               ← compounding K-M, tabelas de resultado, export Excel
 │   ├── baseline_io.py            ← lê/salva projecoes_copom.xlsx (projeções oficiais BCB)
-│   └── mercado_io.py             ← PTAX (SGS), Selic/Focus (Olinda), IPCA/Focus, calendário Copom
+│   ├── mercado_io.py             ← PTAX (SGS), Selic/Focus (Olinda), IPCA/Focus, calendário Copom
+│   └── brent_io.py               ← curva de Brent BCB a partir de exportação Bloomberg
 │
-├── data/
-│   ├── mAgregado2024q2_base_results.mat   ← solução Dynare (artefato principal — não editar)
-│   ├── projecoes_copom.xlsx               ← projeções oficiais BCB por reunião (uma aba por reunião)
-│   ├── copom_calendar.json                ← datas das reuniões 2025–2026
-│   ├── copom2025_novo.xlsx                ← outputs de simulação 2025
-│   ├── copom2026_novo.xlsx                ← outputs de simulação 2026
-│   ├── simula_copom.xlsx                  ← inputs de expectativas/Selic entre reuniões
-│   └── brent e cambio.xlsx                ← premissas de commodities/câmbio
-│
-└── exploratory/                  ← scripts Matlab/Dynare (referência; não usados pelo app)
-    ├── mAgregado2024q2_base.mod           ← arquivo do modelo Dynare
-    ├── runModelo24q2_*.m                  ← runners por reunião do Copom
-    └── simul_cambio_e_hiato.m             ← grid search câmbio × hiato
+└── data/
+    ├── mAgregado2024q2_base_results.mat   ← solução Dynare (artefato principal — não editar)
+    ├── projecoes_copom.xlsx               ← projeções oficiais BCB por reunião (uma aba por reunião)
+    ├── Brent_full.xlsx                    ← exportação Bloomberg com contratos ICE Brent
+    └── copom_calendar.json                ← datas das reuniões 2025–2026
 ```
+
+> Os scripts Matlab/Dynare de referência (`exploratory/`) são mantidos apenas localmente e não estão no repositório.
 
 ## Interface (app.py)
 
