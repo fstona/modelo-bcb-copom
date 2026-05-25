@@ -18,7 +18,6 @@ streamlit run app.py
 ```
 remote_model/
 ├── app.py                        ← entry point Streamlit
-├── CLAUDE.md                     ← instruções para o Claude Code
 ├── requirements.txt
 │
 ├── modules/                      ← lógica Python (importada por app.py)
@@ -35,7 +34,7 @@ remote_model/
     └── copom_calendar.json                ← datas das reuniões 2025–2026
 ```
 
-> Os scripts Matlab/Dynare de referência (`exploratory/`) são mantidos apenas localmente e não estão no repositório.
+> Scripts Matlab/Dynare de referência e o diário técnico do projeto são mantidos apenas localmente.
 
 ## Interface (app.py)
 
