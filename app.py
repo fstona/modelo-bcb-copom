@@ -295,12 +295,19 @@ with tab_targets:
 
     # --- Focus data (needed before n_selic to compute max quarters) ---
     _today = date.today()
+    # Para reuniões passadas, usa a sexta de referência daquela reunião como
+    # data "atual" nos Focus — evita trazer dados de hoje para uma reunião histórica.
+    _curr_ref_date = (
+        ref_friday_for_meeting(_meeting_date)
+        if _meeting_date and _meeting_date < _today
+        else _today
+    )
     _prev_focus_date = ref_friday_for_meeting(_prev_meeting_date) if _prev_meeting_date else None
     if _prev_focus_date:
         _prev_focus_date_used, _prev_focus_dict = _cached_prev_selic_focus(_prev_focus_date.isoformat())
     else:
         _prev_focus_date_used, _prev_focus_dict = None, {}
-    _curr_focus_date_used, _curr_focus_dict = _cached_curr_selic_focus(_today.isoformat())
+    _curr_focus_date_used, _curr_focus_dict = _cached_curr_selic_focus(_curr_ref_date.isoformat())
 
     # --- Build quarter → [labels] mapping (needed before n_selic) ---
     _label_map = build_meeting_label_map(_copom_calendar)
@@ -418,7 +425,7 @@ with tab_targets:
     else:
         _prev_ipca_quarterly, _prev_ipca_suav, _prev_ipca_anual = {}, None, {}
 
-    _curr_ipca_quarterly, _curr_ipca_suav, _curr_ipca_anual = _cached_curr_ipca_focus(_today.isoformat())
+    _curr_ipca_quarterly, _curr_ipca_suav, _curr_ipca_anual = _cached_curr_ipca_focus(_curr_ref_date.isoformat())
 
     _prev_expec_curve = build_expec_curve(
         _prev_ipca_quarterly, _prev_ipca_suav, _start_quarter_focus, 16,
@@ -511,7 +518,11 @@ with tab_targets:
         return result["sugestao"], cap
 
     # Câmbio da reunião atual (cambio_q1)
-    ptax_atual = get_ptax_reuniao_atual()
+    ptax_atual = (
+        get_ptax_reuniao_anterior(_meeting_date.isoformat())
+        if _meeting_date and _meeting_date < _today
+        else get_ptax_reuniao_atual()
+    )
     _def_q1, _cap_q1 = _ptax_caption(ptax_atual, f"PTAX {quarters[0]}")
     _def_q1 = round_to_5cents(_def_q1)
 
