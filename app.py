@@ -590,7 +590,7 @@ with tab_choques:
     _brent_bytes = _brent_upload.read() if _brent_upload is not None else None
     _brent_hash  = brent_file_hash(_brent_bytes) if _brent_bytes else brent_file_hash(BRENT_FILE)
 
-    # --- Calcula curva BCB ---
+    # --- Calcula curva BCB atual ---
     _brent_meeting_date = find_meeting_date(copom_name, _copom_calendar) or date.today()
     _brent_cutoff       = brent_copom_cutoff(_brent_meeting_date)
     _brent_levels_auto, _brent_q_prev = _cached_brent_curve(
@@ -600,34 +600,65 @@ with tab_choques:
     _brent_eps_auto = levels_to_eps_brent(_brent_levels_auto, _brent_q_prev)
     _brent_labels   = brent_quarter_labels(_brent_meeting_date, len(_brent_levels_auto))
 
+    # --- Calcula curva BCB da reunião anterior ---
+    _brent_prev_levels, _brent_prev_labels = [], []
+    if _prev_meeting_date:
+        try:
+            _brent_prev_cutoff = brent_copom_cutoff(_prev_meeting_date)
+            _brent_prev_levels_raw, _brent_prev_q_prev = _cached_brent_curve(
+                _brent_hash, _prev_meeting_date.isoformat(),
+                _brent_prev_cutoff.isoformat(), file_bytes=_brent_bytes,
+            )
+            _brent_prev_labels = brent_quarter_labels(_prev_meeting_date,
+                                                       len(_brent_prev_levels_raw))
+            _brent_prev_levels = _brent_prev_levels_raw
+        except Exception:
+            _brent_prev_levels, _brent_prev_labels = [], []
+
+    # Mapa trimestre → nível da reunião anterior (para comparar o mesmo trimestre entre reuniões)
+    _brent_prev_level_map = dict(zip(_brent_prev_labels, _brent_prev_levels)) if _brent_prev_levels else {}
+
     # Nº de períodos padrão = até onde há variação real (strip de 6 meses = ~2 trimestres além do corrente)
-    _brent_n_default = min(6, len(_brent_levels_auto))
+    _brent_n_default = min(3, len(_brent_levels_auto))
     n_brent = st.number_input("Nº de trimestres", 0, len(_brent_levels_auto),
                                _brent_n_default, key="n_brent")
 
-    st.caption(
-        f"Cutoff BCB: {_brent_cutoff.strftime('%d/%m/%Y')}  |  "
-        f"Q anterior ({_brent_labels[0] if _brent_labels else '?'[:-2] + ' prev'}): "
-        f"**{_brent_q_prev:.2f} USD**"
-    )
+    st.caption(f"Cutoff BCB: {_brent_cutoff.strftime('%d/%m/%Y')}")
 
     # --- Inputs de nível USD (pré-preenchidos, editáveis) ---
+    # eps_brent = primeira diferença das revisões entre reuniões (captura nível + inclinação da curva)
     brent_input_levels = []
+    brent_revisions = []
     cols_b = st.columns(4)
     for t in range(int(n_brent)):
-        _auto_lvl = _brent_levels_auto[t] if t < len(_brent_levels_auto) else 0.0
-        _lbl      = _brent_labels[t] if t < len(_brent_labels) else quarters[t]
-        _prev_lvl = _brent_input_levels_prev = (
-            brent_input_levels[-1] if t > 0 else _brent_q_prev
-        )
+        _auto_lvl    = _brent_levels_auto[t] if t < len(_brent_levels_auto) else 0.0
+        _lbl         = _brent_labels[t] if t < len(_brent_labels) else quarters[t]
+        _prev_same_q = _brent_prev_level_map.get(_lbl)
         v = cols_b[t % 4].number_input(
             _lbl, value=float(_auto_lvl), step=0.5, format="%.2f", key=f"brent_{t}"
         )
-        _delta_pct = (v / _prev_lvl - 1) * 100 if _prev_lvl else 0.0
-        cols_b[t % 4].caption(f"Δ: {_delta_pct:+.2f}%")
+        if _prev_same_q:
+            _rev_pct = (v / _prev_same_q - 1) * 100
+            cols_b[t % 4].caption(
+                f"{prev_meeting_name or 'Anterior'}: {_prev_same_q:.2f} USD | Δ: {_rev_pct:+.2f}%"
+            )
+            brent_revisions.append(round(_rev_pct, 4))
+        else:
+            cols_b[t % 4].caption("Sem dado anterior")
+            brent_revisions.append(0.0)
         brent_input_levels.append(v)
 
-    brent_vals = levels_to_eps_brent(brent_input_levels, _brent_q_prev) if brent_input_levels else []
+    # eps_brent = primeira diferença das revisões entre reuniões:
+    #   período 0: revisão direta
+    #   período t: revisão[t] − revisão[t−1]  (desconta a velocidade de queda já aplicada)
+    brent_vals = [
+        round(brent_revisions[t] - (brent_revisions[t - 1] if t > 0 else 0.0), 4)
+        for t in range(len(brent_revisions))
+    ]
+
+    # Remove trailing zeros
+    while brent_vals and abs(brent_vals[-1]) < 1e-6:
+        brent_vals.pop()
 
     st.divider()
     st.markdown("**Hiato do produto** — choque persistente (eps_h2008, pp)")
@@ -753,6 +784,8 @@ with tab_resultados:
             "brent_q_prev": _brent_q_prev,
             "brent_labels": _brent_labels,
             "brent_eps": brent_vals,
+            "brent_prev_levels": _brent_prev_levels,
+            "brent_prev_labels": _brent_prev_labels,
         })
 
     if "df" not in st.session_state:
@@ -884,23 +917,39 @@ with tab_resultados:
     _brent_eps_ss    = st.session_state.get("brent_eps", [])
 
     if _brent_levels_ss:
-        st.markdown("#### Brent — nível simulado (USD/barril)")
-        _brent_plot_labels = (
+        # Limita ao mesmo horizonte da Selic (último trimestre com cobertura do Focus anterior)
+        _all_brent_labels = (
             _brent_labels_ss[:len(_brent_levels_ss)]
             if _brent_labels_ss
             else quarters[:len(_brent_levels_ss)]
         )
+        _brent_horizon = min(_horizon, len(_all_brent_labels))
+        _brent_plot_labels = _all_brent_labels[:_brent_horizon]
+        _brent_levels_plot = _brent_levels_ss[:_brent_horizon]
+
+        _brent_prev_levels_ss = st.session_state.get("brent_prev_levels", [])
+        _brent_prev_labels_ss = st.session_state.get("brent_prev_labels", [])
+
+        st.markdown("#### Brent — nível (USD/barril)")
         fig_brent_lvl = go.Figure()
         fig_brent_lvl.add_trace(go.Scatter(
-            x=_brent_plot_labels, y=_brent_levels_ss,
-            name="Brent (BCB)", mode="lines+markers",
-            line=dict(color="#e67e22", width=2),
+            x=_brent_plot_labels, y=_brent_levels_plot,
+            name=f"Brent {curr_name_ss}", mode="lines+markers",
+            line=dict(color="#2ca02c", width=2),
         ))
-        if _brent_q_prev_ss is not None:
+        if _brent_prev_levels_ss:
+            _prev_all_labels = (
+                _brent_prev_labels_ss[:len(_brent_prev_levels_ss)]
+                if _brent_prev_labels_ss
+                else quarters[:len(_brent_prev_levels_ss)]
+            )
+            _prev_horizon = min(_horizon, len(_prev_all_labels))
             fig_brent_lvl.add_trace(go.Scatter(
-                x=[_brent_plot_labels[0]], y=[_brent_q_prev_ss],
-                name="Q anterior (realizado)", mode="markers",
-                marker=dict(color="#999999", size=8, symbol="circle-open"),
+                x=_prev_all_labels[:_prev_horizon],
+                y=_brent_prev_levels_ss[:_prev_horizon],
+                name=f"Brent {prev_name_ss}", mode="lines+markers",
+                line=dict(color="#555555", dash="dash", width=2),
+                marker=dict(symbol="circle-open"),
             ))
         fig_brent_lvl.update_layout(
             yaxis_title="USD/barril", height=300,
@@ -909,11 +958,11 @@ with tab_resultados:
         st.plotly_chart(fig_brent_lvl, use_container_width=True)
 
         st.markdown("#### Brent — eps_brent (%∆ trimestral)")
-        _eps_plot = (_brent_eps_ss + [None] * len(_brent_plot_labels))[:len(_brent_plot_labels)]
+        _eps_plot = (_brent_eps_ss + [None] * _brent_horizon)[:_brent_horizon]
         fig_brent_eps = go.Figure()
         fig_brent_eps.add_trace(go.Bar(
             x=_brent_plot_labels, y=_eps_plot,
-            name="eps_brent", marker_color="#e67e22",
+            name="eps_brent", marker_color="#555555",
         ))
         fig_brent_eps.update_layout(
             yaxis_title="%∆ trimestral", height=280,
