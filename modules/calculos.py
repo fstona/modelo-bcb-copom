@@ -1,5 +1,5 @@
 """
-Pós-processamento dos resultados da simulação.
+Pós-processamento dos resultados da simulação.  # v2 — bcb_proj support
 
 Replica as fórmulas das colunas J-AC do copom2026_novo.xlsx:
   K-M  : compounding cumulativo dos choques trimestrais (IPCA, Livres, Adm)
