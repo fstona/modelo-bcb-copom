@@ -874,11 +874,11 @@ with tab_resultados:
         styles = pd.DataFrame("", index=df_s.index, columns=df_s.columns)
         for col in df_s.columns:
             if col == hr_col:
-                styles[col] = "font-weight: bold; background-color: #fffbe6; color: #1a1a1a"
+                styles[col] = "font-weight: bold; background-color: #00A859; color: #FFFFFF"
         for idx in df_s.index:
             if isinstance(idx, tuple) and "BCB pub." in str(idx[1]):
                 styles.loc[idx] = styles.loc[idx].apply(
-                    lambda v: v + "; background-color: #cce5f6; color: #1a5276"
+                    lambda v: v + "; background-color: #007A3D; color: #FFFFFF"
                 )
         return styles
 
@@ -896,12 +896,12 @@ with tab_resultados:
     fig_selic = go.Figure()
     fig_selic.add_trace(go.Bar(
         x=quarters, y=df["it"].tolist(),
-        name="Selic simulada", marker_color="#555555",
+        name="Selic simulada", marker_color="#00A859",
     ))
     fig_selic.add_trace(go.Scatter(
         x=quarters, y=_selic_target,
         name="Δ target (Focus)", mode="markers",
-        marker=dict(color="#2ca02c", size=8, symbol="diamond"),
+        marker=dict(color="#00A859", size=8, symbol="diamond"),
         connectgaps=False,
     ))
     fig_selic.update_layout(yaxis_title="pp vs steady state", height=300,
@@ -949,12 +949,12 @@ with tab_resultados:
     fig_selic_lvl.add_trace(go.Scatter(
         x=_qs_plot, y=_curr_selic_plot,
         name="Cenário atual", mode="lines+markers",
-        line=dict(color="#2ca02c", width=2),
+        line=dict(color="#00A859", width=2),
     ))
     fig_selic_lvl.add_trace(go.Scatter(
         x=_qs_plot, y=_prev_selic_plot,
         name=f"Focus {prev_name_ss}", mode="lines+markers",
-        line=dict(color="#555555", dash="dash", width=2),
+        line=dict(color="#9CA3AF", dash="dash", width=2),
         marker=dict(symbol="circle-open"),
         connectgaps=False,
     ))
@@ -963,7 +963,7 @@ with tab_resultados:
             type="line",
             x0=quarters[_n_anch - 1], x1=quarters[_n_anch - 1],
             y0=0, y1=1, yref="paper",
-            line=dict(dash="dot", color="gray", width=1),
+            line=dict(dash="dot", color="#9CA3AF", width=1),
         )
     fig_selic_lvl.update_layout(
         yaxis_title="% a.a.", height=320,
@@ -992,19 +992,19 @@ with tab_resultados:
         fig_cambio.add_trace(go.Scatter(
             x=quarters[:_horizon], y=_cambio_lvl,
             name="Câmbio simulado", mode="lines+markers",
-            line=dict(color="#2ca02c", width=2),
+            line=dict(color="#00A859", width=2),
         ))
         fig_cambio.add_trace(go.Scatter(
             x=quarters[:_horizon], y=_ppc_ref,
             name="PPC (0,25% a.t.)", mode="lines",
-            line=dict(color="#555555", dash="dash", width=1.5),
+            line=dict(color="#9CA3AF", dash="dash", width=1.5),
         ))
         if _alternativo_ss and 0 < _n_cambio_targets_ss < _horizon:
             fig_cambio.add_shape(
                 type="line",
                 x0=quarters[_n_cambio_targets_ss - 1], x1=quarters[_n_cambio_targets_ss - 1],
                 y0=0, y1=1, yref="paper",
-                line=dict(dash="dot", color="gray", width=1),
+                line=dict(dash="dot", color="#9CA3AF", width=1),
             )
         fig_cambio.update_layout(
             yaxis_title="R$/USD", height=300,
@@ -1038,7 +1038,7 @@ with tab_resultados:
         fig_brent_lvl.add_trace(go.Scatter(
             x=_brent_plot_labels, y=_brent_levels_plot,
             name=f"Brent {curr_name_ss}", mode="lines+markers",
-            line=dict(color="#2ca02c", width=2),
+            line=dict(color="#00A859", width=2),
         ))
         if _brent_prev_levels_ss:
             _prev_all_labels = (
@@ -1051,7 +1051,7 @@ with tab_resultados:
                 x=_prev_all_labels[:_prev_horizon],
                 y=_brent_prev_levels_ss[:_prev_horizon],
                 name=f"Brent {prev_name_ss}", mode="lines+markers",
-                line=dict(color="#555555", dash="dash", width=2),
+                line=dict(color="#9CA3AF", dash="dash", width=2),
                 marker=dict(symbol="circle-open"),
             ))
         fig_brent_lvl.update_layout(
@@ -1065,7 +1065,7 @@ with tab_resultados:
         fig_brent_eps = go.Figure()
         fig_brent_eps.add_trace(go.Bar(
             x=_brent_plot_labels, y=_eps_plot,
-            name="eps_brent", marker_color="#555555",
+            name="eps_brent", marker_color="#9CA3AF",
         ))
         fig_brent_eps.update_layout(
             yaxis_title="%∆ trimestral", height=280,
@@ -1112,13 +1112,13 @@ with tab_resultados:
     fig_expec.add_trace(go.Scatter(
         x=_eq, y=_expec_curr_plot,
         name=curr_name_ss, mode="lines+markers",
-        line=dict(color="#2ca02c", width=2),
+        line=dict(color="#00A859", width=2),
         connectgaps=False,
     ))
     fig_expec.add_trace(go.Scatter(
         x=_eq, y=_expec_prev_plot,
         name=prev_name_ss, mode="lines+markers",
-        line=dict(color="#555555", dash="dash", width=2),
+        line=dict(color="#9CA3AF", dash="dash", width=2),
         marker=dict(symbol="circle-open"),
         connectgaps=False,
     ))
@@ -1127,7 +1127,7 @@ with tab_resultados:
             type="line",
             x0=quarters[_n_anch_expec - 1], x1=quarters[_n_anch_expec - 1],
             y0=0, y1=1, yref="paper",
-            line=dict(dash="dot", color="gray", width=1),
+            line=dict(dash="dot", color="#9CA3AF", width=1),
         )
     fig_expec.update_layout(
         yaxis_title="% acum. 12m (Focus)",
@@ -1142,7 +1142,7 @@ with tab_resultados:
         if not df_proj.empty:
             st.divider()
             st.markdown("#### Trajetória projetada vs Baseline RPM")
-            CORES = {"IPCA": "#2ca02c", "Livres": "#27ae60", "Adm": "#d62728"}
+            CORES = {"IPCA": "#00A859", "Livres": "#33BB77", "Adm": "#E05252"}
             fig_traj = go.Figure()
             q_plot = df_proj["Período"].tolist()
             for var, cor in CORES.items():
