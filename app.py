@@ -901,7 +901,8 @@ with tab_resultados:
     fig_selic.add_trace(go.Scatter(
         x=quarters, y=_selic_target,
         name="Δ target (Focus)", mode="markers",
-        marker=dict(color="#4B5563", size=8, symbol="diamond"),
+        marker=dict(color="#9CA3AF", size=9, symbol="diamond",
+                    line=dict(color="#4B5563", width=1.5)),
         connectgaps=False,
     ))
     fig_selic.update_layout(yaxis_title="pp vs steady state", height=300,
