@@ -1189,27 +1189,39 @@ with tab_resultados:
             st.divider()
             st.markdown("#### Trajetória projetada vs Baseline RPM")
             CORES = {"IPCA": "#00A859", "Livres": "#33BB77", "Adm": "#E05252"}
-            fig_traj = go.Figure()
+            # Uma sub-aba por abertura (IPCA cheio, Livres, Adm), cada uma com
+            # Baseline RPM (tracejada) + Projeção atualizada (sólida).
+            _traj_abas = [("IPCA", "IPCA cheio"), ("Livres", "Livres"), ("Adm", "Adm")]
             q_plot = df_proj["Período"].tolist()
-            for var, cor in CORES.items():
-                fig_traj.add_trace(go.Scatter(
+
+            def _fig_trajetoria(var, cor):
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
                     x=q_plot, y=df_proj[f"RPM_{var}"].tolist(),
-                    name=f"{var} — Baseline RPM",
+                    name="Baseline RPM",
                     line=dict(color=cor, dash="dash", width=1.5),
                     mode="lines+markers", marker=dict(symbol="circle-open"),
                 ))
-                fig_traj.add_trace(go.Scatter(
+                fig.add_trace(go.Scatter(
                     x=q_plot, y=df_proj[f"Proj_{var}"].tolist(),
-                    name=f"{var} — Projeção atualizada",
+                    name="Projeção atualizada",
                     line=dict(color=cor, dash="solid", width=2),
                     mode="lines+markers",
                 ))
-            fig_traj.update_layout(
-                yaxis_title="% (acum. 4 trimestres)",
-                height=450,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            )
-            st.plotly_chart(fig_traj, use_container_width=True)
+                fig.update_layout(
+                    yaxis_title="% (acum. 4 trimestres)",
+                    height=450,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                )
+                return fig
+
+            _traj_tabs = st.tabs([_lbl for _, _lbl in _traj_abas])
+            for _tab, (_var, _lbl) in zip(_traj_tabs, _traj_abas):
+                with _tab:
+                    st.plotly_chart(
+                        _fig_trajetoria(_var, CORES[_var]),
+                        use_container_width=True, key=f"traj_{_var}",
+                    )
 
     # --- Desvios brutos e projeções detalhadas em expansor ---
     with st.expander("Desvios trimestrais e projeções detalhadas"):
