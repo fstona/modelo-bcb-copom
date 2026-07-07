@@ -86,6 +86,19 @@ def previous_meeting(meeting_date: date, calendar: list) -> Optional[date]:
     return earlier[-1] if earlier else None
 
 
+def next_meeting(calendar: list, ref_date: Optional[date] = None) -> Optional[date]:
+    """
+    Retorna a próxima reunião do Copom a ser simulada a partir de `ref_date`
+    (padrão: hoje). É a primeira reunião cuja data é >= ref_date, de modo que,
+    no dia da reunião, ela ainda é a "atual"; assim que a data passa, avança
+    automaticamente para a seguinte. Se todas já passaram, retorna a última.
+    """
+    if ref_date is None:
+        ref_date = date.today()
+    upcoming = [d for d in calendar if d >= ref_date]
+    return upcoming[0] if upcoming else (calendar[-1] if calendar else None)
+
+
 def meeting_name_from_date(meeting_date: date) -> str:
     """Converte data de reunião para nome padrão tipo 'Abr26'."""
     return f"{MESES_NUM_PT[meeting_date.month]}{str(meeting_date.year)[2:]}"

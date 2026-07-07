@@ -25,7 +25,7 @@ from calculos import build_results_table, build_comparison_table, export_excel
 from baseline_io import load_meeting, list_meetings
 from mercado_io import (
     load_copom_calendar, find_meeting_date, get_meeting_position,
-    previous_meeting, calc_ptax_para_reuniao, calc_ptax_atual,
+    previous_meeting, next_meeting, calc_ptax_para_reuniao, calc_ptax_atual,
     meeting_name_from_date, round_to_5cents, ref_friday_for_meeting,
     fetch_selic_focus_on_date, get_selic_sgs432, build_meeting_label_map,
     selic_label_to_quarter, compute_selic_quarterly_delta,
@@ -219,8 +219,13 @@ st.sidebar.title("Modelo BCB — Copom")
 st.sidebar.markdown("---")
 st.sidebar.subheader("Identificação")
 
-copom_name   = st.sidebar.text_input("Nome da reunião", value="Jun26",
-                                      help="Ex: Jun26, Dez26, Jan27.")
+# Default = próxima reunião do Copom conforme a data de hoje (avança
+# automaticamente assim que a reunião corrente passa). Editável pelo usuário.
+_next_meeting_date = next_meeting(_copom_calendar)
+_default_copom = meeting_name_from_date(_next_meeting_date) if _next_meeting_date else "Jun26"
+copom_name   = st.sidebar.text_input("Nome da reunião", value=_default_copom,
+                                      help="Ex: Jun26, Dez26, Jan27. "
+                                           "Padrão = próxima reunião pela data de hoje.")
 nome_arquivo = st.sidebar.text_input("Arquivo de saída Excel", value="proj_Copom.xlsx")
 
 parsed = parse_copom_name(copom_name)
@@ -395,11 +400,18 @@ with tab_targets:
 
             if _is_realized:
                 _val = _cached_realized_selic(_mdate.isoformat())
-                _disp = float(_val) if _val is not None else 0.0
-                _cols[_ci].number_input(
-                    f"{_lbl} ✓ realizada", value=_disp, disabled=True,
+                _realized = float(_val) if _val is not None else 0.0
+                # Editável mesmo já realizada — permite testar cenários
+                # contrafactuais logo após a reunião. A marcação "✓ realizada"
+                # e a legenda indicam qual foi o valor efetivo.
+                _disp = _cols[_ci].number_input(
+                    f"{_lbl} ✓ realizada", value=_realized,
                     step=0.25, format="%.2f", key=f"selic_m_{_lbl}",
                 )
+                if _val is not None:
+                    _cols[_ci].caption(f"realizada: {_realized:.2f}")
+                else:
+                    _cols[_ci].caption("realizada indisponível")
                 _user_selic[_lbl] = _disp
             else:
                 _default = float(_curr_focus_dict.get(_lbl, 0.0))
@@ -756,17 +768,24 @@ with tab_rpm:
             use_container_width=True, height=min(60 + len(_curr_df_show) * 35, 460),
         )
 
-        # Extrai vetores para a simulação
-        if not segunda_reuniao:
-            # 1ª reunião: série contígua (apenas linhas com dado)
-            rpm_ipca   = [v for v in _curr_raw["IPCA"]   if not np.isnan(v)]
-            rpm_livres = [v for v in _curr_raw["Livres"] if not np.isnan(v)]
-            rpm_adm    = [v for v in _curr_raw["Adm"]    if not np.isnan(v)]
-        else:
-            # 2ª reunião: sparse (NaN nas posições sem dado)
-            rpm_ipca   = _curr_raw["IPCA"]
-            rpm_livres = _curr_raw["Livres"]
-            rpm_adm    = _curr_raw["Adm"]
+        # Alinha o baseline ao vetor de trimestres da reunião ATUAL casando o
+        # rótulo do trimestre. Sem isso, na 1ª reunião do trimestre (quando a
+        # planilha anterior começa no trimestre prévio) o baseline desloca 1 tri
+        # — ex.: simular Ago26 (2026Q3) com baseline Jun26 (2026Q2).
+        _base_periods = list(_curr_raw["Período"])
+
+        def _align_rpm(col):
+            _m = dict(zip(_base_periods, _curr_raw[col]))
+            out = []
+            for q in quarters:
+                v = _m.get(q, np.nan)
+                out.append(np.nan if (v is None or (isinstance(v, float) and np.isnan(v)))
+                           else float(v))
+            return out
+
+        rpm_ipca   = _align_rpm("IPCA")
+        rpm_livres = _align_rpm("Livres")
+        rpm_adm    = _align_rpm("Adm")
     else:
         _missing = prev_meeting_name or copom_name
         st.warning(
@@ -1034,12 +1053,10 @@ with tab_resultados:
         _brent_prev_labels_ss = st.session_state.get("brent_prev_labels", [])
 
         st.markdown("#### Brent — nível (USD/barril)")
-        fig_brent_lvl = go.Figure()
-        fig_brent_lvl.add_trace(go.Scatter(
-            x=_brent_plot_labels, y=_brent_levels_plot,
-            name=f"Brent {curr_name_ss}", mode="lines+markers",
-            line=dict(color="#00A859", width=2),
-        ))
+
+        # Curva da reunião anterior (referência) — montada antes para poder
+        # ancorar a curva atual no trimestre anterior.
+        _prev_x, _prev_y = [], []
         if _brent_prev_levels_ss:
             _prev_all_labels = (
                 _brent_prev_labels_ss[:len(_brent_prev_levels_ss)]
@@ -1047,13 +1064,42 @@ with tab_resultados:
                 else quarters[:len(_brent_prev_levels_ss)]
             )
             _prev_horizon = min(_horizon, len(_prev_all_labels))
+            _prev_x = list(_prev_all_labels[:_prev_horizon])
+            _prev_y = list(_brent_prev_levels_ss[:_prev_horizon])
+
+        # Curva atual — ancorada esteticamente no trimestre anterior (ex.:
+        # 2026Q2 ao simular Ago26), no mesmo ponto da curva anterior; a partir
+        # daí as linhas divergem. Só afeta o gráfico: os choques do modelo
+        # usam apenas os trimestres a partir da reunião atual.
+        _curr_x = list(_brent_plot_labels)
+        _curr_y = list(_brent_levels_plot)
+        if _curr_x:
+            _earlier = [q for q in _prev_x if q < _curr_x[0]]
+            if _earlier:
+                _ref_q = max(_earlier)
+                _curr_x = [_ref_q] + _curr_x
+                _curr_y = [_prev_y[_prev_x.index(_ref_q)]] + _curr_y
+
+        fig_brent_lvl = go.Figure()
+        fig_brent_lvl.add_trace(go.Scatter(
+            x=_curr_x, y=_curr_y,
+            name=f"Brent {curr_name_ss}", mode="lines+markers",
+            line=dict(color="#00A859", width=2),
+        ))
+        if _prev_x:
             fig_brent_lvl.add_trace(go.Scatter(
-                x=_prev_all_labels[:_prev_horizon],
-                y=_brent_prev_levels_ss[:_prev_horizon],
+                x=_prev_x, y=_prev_y,
                 name=f"Brent {prev_name_ss}", mode="lines+markers",
                 line=dict(color="#9CA3AF", dash="dash", width=2),
                 marker=dict(symbol="circle-open"),
             ))
+        # Eixo x em ordem cronológica. Rótulos "YYYYQN" ordenam como string;
+        # sem forçar a ordem, o eixo categórico anexa o trimestre anterior no
+        # fim e a linha cinza volta sobre si mesma (parecendo duas linhas).
+        fig_brent_lvl.update_xaxes(
+            categoryorder="array",
+            categoryarray=sorted(set(_curr_x) | set(_prev_x)),
+        )
         fig_brent_lvl.update_layout(
             yaxis_title="USD/barril", height=300,
             legend=dict(orientation="h", y=1.02, yanchor="bottom"),

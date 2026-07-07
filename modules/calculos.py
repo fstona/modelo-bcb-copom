@@ -180,6 +180,23 @@ def build_comparison_table(
         ("Adm",    "RPM_Adm",    "Proj_Adm",     "Adm"),
     ]
 
+    # Trimestres de cada planilha — usados para casar o valor pelo rótulo do
+    # trimestre (e não pela posição), evitando o descasamento de 1 tri quando a
+    # reunião anterior/atual começa num trimestre diferente do horizonte atual.
+    prev_quarters = prev_proj.get("quarters", []) if prev_proj is not None else []
+    bcb_quarters  = bcb_proj.get("quarters", [])  if bcb_proj  is not None else []
+
+    def _lookup(proj, proj_quarters, key, quarter, idx):
+        """Valor da projeção casando o trimestre; fallback posicional se a
+        planilha não trouxer a coluna 'quarters'."""
+        series = proj.get(key, [])
+        if proj_quarters:
+            pos = proj_quarters.index(quarter) if quarter in proj_quarters else None
+            val = series[pos] if (pos is not None and pos < len(series)) else np.nan
+        else:
+            val = series[idx] if idx < len(series) else np.nan
+        return np.nan if (isinstance(val, float) and np.isnan(val)) else val
+
     rows, idx_tuples = [], []
     for var_name, rpm_col, proj_col, prev_key in vars_config:
         prev_row = []
@@ -187,9 +204,8 @@ def build_comparison_table(
             idx = h["index"]
             if prev_proj is not None:
                 # Prioridade: projeções oficiais do BCB carregadas do arquivo
-                series = prev_proj.get(prev_key, [])
-                val = series[idx] if idx < len(series) else np.nan
-                prev_row.append(np.nan if (isinstance(val, float) and np.isnan(val)) else val)
+                prev_row.append(_lookup(prev_proj, prev_quarters, prev_key,
+                                        h["quarter"], idx))
             elif idx == extra_idx and prev_extra is not None:
                 # Fallback manual apenas para o horizonte extra (sem arquivo)
                 prev_row.append(prev_extra.get(prev_key, np.nan))
@@ -203,11 +219,8 @@ def build_comparison_table(
 
         # Projeções publicadas pelo BCB para a reunião atual (quando disponíveis)
         if bcb_proj is not None:
-            bcb_row = []
-            for h in all_horizons:
-                series = bcb_proj.get(prev_key, [])
-                val = series[h["index"]] if h["index"] < len(series) else np.nan
-                bcb_row.append(np.nan if (isinstance(val, float) and np.isnan(val)) else val)
+            bcb_row = [_lookup(bcb_proj, bcb_quarters, prev_key, h["quarter"], h["index"])
+                       for h in all_horizons]
             rows.append(bcb_row)
             idx_tuples.append((var_name, bcb_name))
 
