@@ -37,6 +37,11 @@ from brent_io import (
     copom_cutoff as brent_copom_cutoff, file_hash as brent_file_hash,
     BRENT_DEFAULT_PATH,
 )
+from clima_io import (
+    fetch_roni_observada, roni_para_forcamento, shift_quarter,
+    load_roni_ref, fetch_plume_iri_cutoff, construir_caminho_roni,
+    estimar_ar1_roni, RONI_FILE as RONI_DEFAULT_PATH,
+)
 
 # ---------------------------------------------------------------------------
 # Configuração da página
@@ -50,6 +55,7 @@ st.set_page_config(
 MAT_FILE      = os.path.join(os.path.dirname(__file__), "data", "mAgregado2024q2_base_results.mat")
 BASELINE_FILE = os.path.join(os.path.dirname(__file__), "data", "projecoes_copom.xlsx")
 BRENT_FILE    = str(BRENT_DEFAULT_PATH)
+RONI_FILE     = str(RONI_DEFAULT_PATH)
 
 OOMEGA_L = 1 - 0.259
 N_CAMBIO_BASE = 16
@@ -124,6 +130,25 @@ def _cached_brent_curve(file_hash: str, meeting_date_iso: str, cutoff_iso: str, 
     import io as _io
     path = _io.BytesIO(file_bytes) if file_bytes is not None else None
     return load_brent_curve(meeting, bloomberg_path=path, cutoff=cutoff)
+
+
+@st.cache_data(ttl=86400)
+def _cached_roni_observada(_cache_v=1):
+    """RONI observada (NOAA CPC) — cache 24 horas."""
+    return fetch_roni_observada()
+
+
+@st.cache_data(ttl=86400)
+def _cached_plume_iri(cutoff_iso: str, _cache_v=1):
+    """Plume ENSO do IRI (safra do cutoff) — cache 24 horas."""
+    from datetime import date as _date
+    return fetch_plume_iri_cutoff(_date.fromisoformat(cutoff_iso))
+
+
+@st.cache_data(ttl=86400)
+def _cached_phi_ar1(_cache_v=1):
+    """phi AR(1) da RONI (eventos de El Niño, RONI>0.5) — cache 24 horas."""
+    return estimar_ar1_roni(limiar=0.5)
 
 
 model = get_model()
@@ -720,6 +745,127 @@ with tab_choques:
         brent_vals.pop()
 
     st.divider()
+    st.markdown("**Clima — El Niño / La Niña (RONI)**")
+    st.caption(
+        "Anomalia do Pacífico (RONI, NOAA/CPC). Impacto sobre livres: **altista no início, baixista "
+        "após ~3 tri**. Forçamento `climaA−climaB` somado ao `eps_piL`. climaSq=RONI²; "
+        "dummy El Niño se RONI≥0,5 / La Niña se RONI≤−0,5."
+    )
+    st.caption(
+        "**Reunião anterior** = arquivo `roni_ref.xlsx` (observado + móveis já divulgados, editado à "
+        "mão) decaído por φ₁. **Projeção atual** = observado NOAA + ensemble do plume IRI (safra do "
+        "cutoff) + extrapolação do próximo móvel (`*`), com cauda decaída por φ₂. Os dois φ são "
+        "independentes (default iguais)."
+    )
+    usar_clima = st.checkbox("Incluir choque de clima", value=False, key="usar_clima")
+    clima_f = []
+    if usar_clima:
+        _clima_meeting_q = quarters[0]
+        _roni_obs = _cached_roni_observada() or {}
+        _phi_def = float(_cached_phi_ar1())
+
+        _cs1, _cs2 = st.columns(2)
+        _phi_ant  = _cs1.slider("φ decaimento — reunião anterior", 0.0, 1.0, _phi_def, 0.02,
+                                key="phi_ant",
+                                help="Decai a partir do último móvel divulgado da reunião passada.")
+        _phi_prox = _cs2.slider("φ decaimento — próxima reunião", 0.0, 1.0, _phi_def, 0.02,
+                                key="phi_prox",
+                                help="Decai a partir da extrapolação do próximo móvel desta reunião.")
+
+        _n_clima = st.number_input("Nº de trimestres do horizonte (clima)",
+                                   0, len(quarters), min(8, len(quarters)), key="n_clima")
+        _pre_q = [shift_quarter(_clima_meeting_q, -k) for k in range(5, 0, -1)]
+        _hor_q = [quarters[t] for t in range(int(_n_clima))]
+        _clima_q_all = _pre_q + _hor_q
+
+        # ---- Referência da reunião ANTERIOR: arquivo (obs + móveis) decaído por φ₁ ----
+        _roni_prev  = load_roni_ref(prev_meeting_name, RONI_FILE) if prev_meeting_name else None
+        _prev_known = {q: v for q, v in zip((_roni_prev or {}).get("quarters", []),
+                                            (_roni_prev or {}).get("RONI", [])) if v is not None} \
+                      if _roni_prev else {}
+        _prev_path = construir_caminho_roni(_prev_known, _clima_q_all, _phi_ant)[0] \
+                     if _prev_known else {}
+
+        # ---- "Duro" da reunião ATUAL: observado + ensemble IRI + extrapolação (*) ----
+        _clima_cutoff = ref_friday_for_meeting(_brent_meeting_date)
+        _plume = _cached_plume_iri(_clima_cutoff.isoformat())
+        _known = {}
+        _extrap_qs = set()
+        if _plume:
+            for q, v in (_plume.get("roni_ensemble") or {}).items():
+                if q in _clima_q_all:
+                    _known[q] = v
+            for q, v in (_plume.get("roni_ensemble_extrap") or {}).items():
+                if q in _clima_q_all:
+                    _known[q] = v
+                    _extrap_qs.add(q)
+            st.caption(f"Plume IRI: safra **{_plume['vintage']}** (ensemble ≈ BCB)"
+                       + (f", `*` extrapolado" if _extrap_qs else "")
+                       + f" · cutoff {_clima_cutoff.strftime('%d/%m/%Y')}.")
+        else:
+            st.warning("Plume do IRI indisponível para a safra do cutoff — preencha a projeção "
+                       "manualmente nas caixas.")
+
+        # Observado (realizado) tem precedência sobre a PREVISÃO do plume: em
+        # trimestres já fechados usamos o dado NOAA, não a previsão do ensemble.
+        for q in _clima_q_all:
+            if q in _roni_obs:
+                _known[q] = round(_roni_obs[q], 2)
+                _extrap_qs.discard(q)
+
+        # TODAS as caixas do horizonte (até HR+1). Do último trimestre "duro"
+        # (observado/ensemble/extrapolação) em diante, a caixa é a CAUDA decaída
+        # pelo φ₂ — sobrescrita a cada run para o slider controlar o valor.
+        _last_known_q = max(_known) if _known else None
+        _decay_show = []
+
+        _roni_by_q = {}
+        _prev_val = 0.0
+        cols_c = st.columns(4)
+        for i, q in enumerate(_clima_q_all):
+            _k = f"roni_{q}"
+            _is_pre = q in _pre_q
+            _is_decay = (_plume is not None and not _is_pre
+                         and _last_known_q is not None and q > _last_known_q)
+            if _is_decay:
+                st.session_state[_k] = round(_prev_val * _phi_prox, 2)  # slider controla
+                _decay_show.append(q)
+            elif _k not in st.session_state:
+                _d = _known.get(q, 0.0)
+                st.session_state[_k] = float(_d if _d is not None else 0.0)
+            _star = " *" if q in _extrap_qs else ""
+            _tld = " ~" if _is_decay else ""
+            _lbl = f"{q}{_star}{_tld}{' (hist.)' if _is_pre else ''}"
+            v = cols_c[i % 4].number_input(_lbl, step=0.1, format="%.2f", key=_k)
+            _cap = []
+            if q in _roni_obs:
+                _cap.append(f"obs {_roni_obs[q]:+.2f}")
+            if q in _prev_path:
+                _cap.append(f"{prev_meeting_name} {_prev_path[q]:+.2f}")
+            _fallback = "cauda φ₂" if _is_decay else "IRI/manual"
+            cols_c[i % 4].caption(" | ".join(_cap) if _cap else _fallback)
+            _roni_by_q[q] = v
+            _prev_val = v
+
+        _legs = []
+        if _extrap_qs & set(_hor_q):
+            _legs.append("`*` = 1 tri além do plume (março ≈ média jan-fev: `JFM=(3·DJF−NDJ)/2`)")
+        if _decay_show:
+            _legs.append(f"`~` = cauda decaída pelo φ₂={_phi_prox:.2f} (ajuste no slider acima)")
+        if _legs:
+            st.caption("  ·  ".join(_legs))
+
+        clima_f = roni_para_forcamento(_roni_by_q, _clima_meeting_q, int(_n_clima))
+        while clima_f and abs(clima_f[-1]) < 1e-9:
+            clima_f.pop()
+
+        if clima_f and any(abs(x) > 1e-9 for x in clima_f):
+            st.caption("Forçamento em livres (pp/tri): "
+                       + " | ".join(f"{quarters[t]}: {clima_f[t]:+.4f}" for t in range(len(clima_f))))
+        else:
+            st.caption("Forçamento nulo — RONI dentro da faixa neutra (|RONI|<0,5) no horizonte.")
+
+    st.divider()
     st.markdown("**Hiato do produto (`eps_h2008`)**")
     st.caption(
         "Choque persistente sobre o hiato do produto. Use em cenários de recessão ou "
@@ -806,7 +952,15 @@ with tab_resultados:
 
         direct_shocks = {}
         if monit_vals: direct_shocks["eps_monit"] = monit_vals
-        if pil_vals:   direct_shocks["eps_piL"]   = pil_vals
+        # eps_piL = choque de livres do usuário + forçamento climático (climaA−climaB).
+        # Ambos entram em piL_t com coeficiente 1 (o forçamento já está em unidade de piL).
+        _eps_piL = [
+            (pil_vals[t]  if t < len(pil_vals)  else 0.0) +
+            (clima_f[t]   if t < len(clima_f)   else 0.0)
+            for t in range(max(len(pil_vals), len(clima_f)))
+        ]
+        if any(abs(v) > 1e-12 for v in _eps_piL):
+            direct_shocks["eps_piL"] = _eps_piL
         if brent_vals: direct_shocks["eps_brent"] = brent_vals
         if hiato_vals: direct_shocks["eps_h2008"] = hiato_vals
 

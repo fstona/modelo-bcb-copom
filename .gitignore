@@ -13,10 +13,11 @@ __pycache__/
 # Dynare / Octave / exploratory scripts
 exploratory/
 
-# Data files — apenas projecoes_copom.xlsx e Brent_full.xlsx são rastreados
+# Data files — projecoes_copom.xlsx, Brent_full.xlsx e roni_ref.xlsx são rastreados
 data/*.xlsx
 !data/projecoes_copom.xlsx
 !data/Brent_full.xlsx
+!data/roni_ref.xlsx
 data/*.mat
 !data/mAgregado2024q2_base_results.mat
 
